@@ -1,0 +1,7 @@
+python-binance
+pandas
+plotly
+kaleido
+openpyxl
+telegram
+python-telegram-bot
