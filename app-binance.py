@@ -9,7 +9,111 @@ import time
 import os
 
 
-client = Client('BINANCE_PUBLIC_KEY', 'BINANCE_PRIVATE_KEY')
+BINANCE_PUBLIC_KEY = os.getenv('BINANCE_PUBLIC_KEY')
+BINANCE_PRIVATE_KEY = os.getenv('BINANCE_PUBLIC_KEY')
+TELEGRAM_BOT_TOKEN = os.getenv('TELEGRAM_BOT_TOKEN')
+TELEGRAM_USER_ID = os.getenv('TELEGRAM_USER_ID')
+
+client = Client(BINANCE_PUBLIC_KEY, BINANCE_PRIVATE_KEY)
+
+
+class Signal:
+
+    def __init__(self, pair: str, chart_data: pd.DataFrame):
+        self.pair = pair
+        self.chart_data = chart_data
+
+    def crossovers_moving_average(self, short_period: int, long_period: int, period: int):
+
+        """Get the signal if the longer MA period cross with the shorter MA period"""
+
+        short_period_ma = self.chart_data['close'].rolling(window=short_period, min_periods=1).mean()
+        long_period_ma = self.chart_data['close'].rolling(window=long_period, min_periods=1).mean()
+
+        # 1. Check whether the longer MA period is under the shorter MA period (it indicates uptrend)
+        is_up = long_period_ma.tail(1).values[0] < short_period_ma.tail(1).values[0]
+        
+        # 2. Check how long is the current trend and find out whether the trend is about to change or not
+        trend_time = 0
+        crossed_price = 0
+        differences = []
+
+        for short_period, long_period, price in zip(short_period_ma[::-1], long_period_ma[::-1], self.chart_data['close'][::-1]):
+            if not ((long_period < short_period) == is_up):
+                crossed_price = price
+                break
+
+            # To find the length of trend
+            trend_time += period
+
+            # To find out whether the trend is about to change or not
+            differences.append(abs(short_period - long_period))
+        
+        current_price = self.chart_data.iloc[-1]['close']
+        trend_time = time.strftime('%H:%M:%S', time.gmtime(trend_time))
+
+        # Determine if the signal will be sent or not
+        is_send = is_up
+
+        return {
+            'is_send': is_send,
+            'is_uptrend': is_up,
+            'trend_time': trend_time,
+            'current_price': current_price,
+            'crossed_price': crossed_price,
+            'differences': differences
+        }
+
+    def break_support_resistance(self, window: int):
+
+        """Get the signal whether the chart is break resistance (uptrend) or break support (downtrend)"""
+
+        # Get the prices based on the given window
+        prices = self.chart_data['close'].tail(window).tolist()
+
+        # Get the necessary parameters
+        start_price = prices[0]
+        current_price = prices.pop()
+        min_price = min(prices)
+        max_price = max(prices)
+
+        # Determine if the signal will be sent or not
+        is_send = current_price > max_price
+
+        return {
+            'is_send': is_send,
+            'is_break_resist': current_price > max_price,
+            'is_break_support': current_price < min_price,
+            'start_price': start_price,
+            'current_price': current_price,
+            'min_price': min_price,
+            'max_price': max_price
+        }
+
+    def price_change(self, window: int, threshold: int):
+
+        """Give a signal if a price rises above / below certain threshold (percentage) in the given period of time"""
+
+         # Get the last (window) candlestick data, then calculate the differences
+        tails = self.chart_data['close'].tail(window).tolist()
+
+        if len(tails) < window:
+            return 0, False
+
+        differences = ((tails[-1] - tails[0]) / tails[0]) * 100 
+        is_above_threshold = differences > threshold
+        is_below_threshold = differences < -threshold
+
+        # Determine if the signal will be sent or not
+        is_send = is_above_threshold
+
+        return {
+            'is_above_threshold': is_above_threshold,
+            'is_below_threshold': is_below_threshold,
+            'current_price': tails[-1],
+            'base_price': tails[0],
+            'differences': differences
+        }
 
 
 def get_chart_data(pair: str = 'BTCUSDT', 
@@ -76,93 +180,20 @@ def convert_chart_data_into_dataframe(klines):
     return df
 
 
-def signal_moving_average(df: pd.DataFrame(),
-                          period: int):
-    
-    """Get the signal if MA 50 cross with the MA 30"""
-
-    avg_30 = df['close'].rolling(window=30, min_periods=1).mean()
-    avg_50 = df['close'].rolling(window=50, min_periods=1).mean()
-
-    # 1. Check whether the MA 50 is under the MA 30 (it indicates uptrend)
-    is_up = avg_50.tail(1).values[0] < avg_30.tail(1).values[0]
-    
-    # 2. Check how long is the current trend and find out whether the trend is about to change or not
-    trend_time = 0
-    crossed_price = 0
-    differences = []
-
-    for ma30, ma50, price in zip(avg_30[::-1], avg_50[::-1], df['close'][::-1]):
-        if not ((ma50 < ma30) == is_up):
-            crossed_price = price
-            break
-
-        # To find the length of trend
-        trend_time += period
-
-        # To find out whether the trend is about to change or not
-        differences.append(abs(ma30 - ma50))
-    
-    current_price = df.iloc[-1]['close']
-    trend_time = time.strftime('%H:%M:%S', time.gmtime(trend_time))
-
-    return {
-        'is_uptrend': is_up,
-        'trend_time': trend_time,
-        'current_price': current_price,
-        'crossed_price': crossed_price,
-        'differences': differences
-    }
-
-def signal_break_support_resist(df: pd.DataFrame()):
-    
-    """Get the signal whether the chart is break resist (uptrend) or break support (downtrend)"""
-
-    # Since we don't want to a large window, we take the last 5 hours of windows transaction only
-    prices = df['close'].tail(60).tolist()
-
-    # Get the necessary parameters
-    start_price = prices[0]
-    current_price = prices.pop()
-    min_price = min(prices)
-    max_price = max(prices)
-
-    return {
-        'is_break_resist': current_price > max_price,
-        'is_break_support': current_price < min_price,
-        'start_price': start_price,
-        'current_price': current_price,
-        'min_price': min_price,
-        'max_price': max_price
-    }
-
-def signal_suddenly_increase(df: pd.DataFrame(), threshold):
-
-    """Get the percentages differences between the last three candles"""
-
-    # Get the last three candles, then calculate the differences
-    tails = df['close'].tail(3).tolist()
-
-    if len(tails) < 3:
-        return 0, False
-
-    differences = ((tails[-1] - tails[0]) / tails[0]) * 100 
-    is_suddenly_increase = differences > threshold
-
-    return {
-        'current_price': tails[-1],
-        'base_price': tails[0],
-        'differences': differences,
-        'is_suddenly_increase': is_suddenly_increase
-    }
-
 def screening_1_minute(context: CallbackContext):
+
+    """Every one minute, this function will run and send the notification to the given user"""
+
+    # Set the exception for pairs we do not want to see
     exception = ['USDTBIDR', 'USDTIDRT', 'USDTBKRW']
 
+    # Get the list of the USDT pair
     tickers = client.get_ticker()
     USDT_market = [pair['symbol'] for pair in tickers if ('USDT' in pair['symbol'] and pair['symbol'] not in exception)]
     markets = pd.DataFrame(tickers)
     markets = markets[markets['symbol'].isin(USDT_market)]
+    
+    # Sort the pairs by volume and get the top 30 highest volume
     markets['quoteVolume'] = markets['quoteVolume'].astype(float)
     markets = markets.sort_values('quoteVolume', ascending=False).head(30)['symbol'].tolist()
 
@@ -176,37 +207,40 @@ def screening_1_minute(context: CallbackContext):
 
     for pair in markets:
         chart_data = get_chart_data(pair, '5m', '1 day')
-        df = convert_chart_data_into_dataframe(chart_data)
+        chart_data = convert_chart_data_into_dataframe(chart_data)
 
-        result_suddenly_increase = signal_suddenly_increase(df, 2)
-        if result_suddenly_increase['is_suddenly_increase']:
+        signal = Signal(pair, chart_data)
+
+        result_suddenly_increase = signal.price_change(window=3, threshold=2)
+        if result_suddenly_increase['is_above_threshold']:
             message_suddenly_increase += pair + ' | ' + '{:.2f}%'.format(result_suddenly_increase['differences']) + '\n'
-            all_suddenly_increase.append([pair, result_suddenly_increase['differences'], result_suddenly_increase['base_price'], result_suddenly_increase['current_price']])
+            all_suddenly_increase.append(1)
 
-        result_break_support_resist = signal_break_support_resist(df)
+        result_break_support_resist = signal.break_support_resistance(window=3)
         if result_break_support_resist['is_break_resist']:
             message_break_support_resist += pair + '\n'
-            all_break_support_resist.append([pair, result_break_support_resist['current_price'], result_break_support_resist['max_price']])
+            all_break_support_resist.append(1)
         
-        result_moving_average = signal_moving_average(df, 300)
+        result_moving_average = signal.crossovers_moving_average(short_period=30, long_period=50, period=300)
         if (result_moving_average['is_uptrend'] and len(result_moving_average['differences']) <= 3):
             message_moving_average += pair + '\n'
-            all_moving_average.append(pair)
+            all_moving_average.append(1)
 
     if len(all_suddenly_increase) > 0:
-        context.bot.send_message(chat_id='TELEGRAM_USER_ID', 
+        context.bot.send_message(chat_id=TELEGRAM_USER_ID, 
                                  text=message_suddenly_increase,
                                  parse_mode=telegram.ParseMode.MARKDOWN)
 
     if len(all_break_support_resist) > 0:
-        context.bot.send_message(chat_id='TELEGRAM_USER_ID', 
+        context.bot.send_message(chat_id=TELEGRAM_USER_ID, 
                                  text=message_break_support_resist,
                                  parse_mode=telegram.ParseMode.MARKDOWN)
     
     if len(all_moving_average) > 0:
-        context.bot.send_message(chat_id='TELEGRAM_USER_ID', 
+        context.bot.send_message(chat_id=TELEGRAM_USER_ID, 
                                  text=message_moving_average,
                                  parse_mode=telegram.ParseMode.MARKDOWN)
+
 
 def send_the_image(update, context):
 
@@ -228,8 +262,9 @@ def send_the_image(update, context):
     context.bot.send_photo(chat_id=update.message.chat_id, photo=open(image_path, 'rb'))
     os.remove(image_path)
 
+
 def main():
-    updater = Updater('TELEGRAM_BOT_TOKEN', use_context=True)
+    updater = Updater(TELEGRAM_BOT_TOKEN, use_context=True)
     job = updater.job_queue
 
     dp = updater.dispatcher
@@ -239,6 +274,7 @@ def main():
 
     updater.start_polling()
     updater.idle()
+
 
 if __name__ == '__main__':
     main()
