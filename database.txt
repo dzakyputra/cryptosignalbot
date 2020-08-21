@@ -1,0 +1,29 @@
+CREATE TABLE signal_cma (
+	timestamp INTEGER,
+	pair TEXT,
+	cma_is_uptrend INTEGER,
+	cma_trend_time TEXT,
+	cma_current_price REAL,
+	cma_differences INTEGER
+);
+
+CREATE TABLE signal_bsr (
+    timestamp INTEGER,
+	pair TEXT,
+	bsr_is_break_resist INTEGER,
+	bsr_is_break_support INTEGER,
+	bsr_start_price REAL,
+	bsr_current_price REAL,
+	bsr_min_price REAL,
+	bsr_max_price REAL
+);
+
+CREATE TABLE signal_pc (
+    timestamp INTEGER,
+	pair TEXT,
+	pc_is_above_threshold INTEGER,	
+	pc_is_below_threshold INTEGER,
+	pc_current_price REAL,
+	pc_base_price REAL,
+	pc_differences REAL
+);
