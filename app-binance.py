@@ -223,22 +223,24 @@ class Database:
         # For each signal, we want to store the given data in the database
         for signal_name, signal_data in data.items():
 
-            total_values = '(' + ',?'*signal_references[signal_name]['total_columns'] + ')'
-            total_values = '(' + total_values[2:]
-            table_name = signal_references[signal_name]['table']
+            if len(signal_data) > 0:
+                
+                total_values = '(' + ',?'*signal_references[signal_name]['total_columns'] + ')'
+                total_values = '(' + total_values[2:]
+                table_name = signal_references[signal_name]['table']
 
-            sql = ''' 
-                    INSERT INTO 
-                        {}
-                    VALUES
-                        {}
-                  '''.format(table_name, total_values)
+                sql = ''' 
+                        INSERT INTO 
+                            {}
+                        VALUES
+                            {}
+                    '''.format(table_name, total_values)
 
-            cur = self.conn.cursor()
-            cur.executemany(sql, signal_data)
-            print(cur.rowcount, 'records have been inserted to the table.')
+                cur = self.conn.cursor()
+                cur.executemany(sql, signal_data)
+                print(cur.rowcount, 'records have been inserted to the table.')
 
-            self.conn.commit()
+                self.conn.commit()
 
         self.conn.close()
 
